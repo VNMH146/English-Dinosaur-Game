@@ -120,19 +120,27 @@ def draw_pixel_button(text, x, y, width, height, color=(0, 128, 255), hover_colo
 
     return button_rect
 
+def draw_outlined_text(text, font, x, y, main_color, outline_color):
+    outline_offsets = [(-2, 0), (2, 0), (0, -2), (0, 2)]
+    for ox, oy in outline_offsets:
+        outline_surf = font.render(text, True, outline_color)
+        screen.blit(outline_surf, (x + ox, y + oy))
+
+    main_surf = font.render(text, True, main_color)
+    screen.blit(main_surf, (x, y))
 
 
 
 # Hiển thị màn hình chính
 def show_main_menu():
-    screen.blit(bg, (0, 0))  # Dùng bg4.png làm nền menu
+    screen.blit(bg, (0, 0)) 
 
     # Vẽ nhân vật gà đứng ở góc dưới
     screen.blit(dino, (100, 460))  # X: 100, Y: 460 (góc dưới nền)
 
-    vertical_offset = 45  # Dời toàn bộ layout xuống 50px
+    vertical_offset = 45 
 
-    # Tiêu đề "English Game"
+    
     title_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 48)
     title_text = title_font.render('English Game', True, (255, 215, 0))
     title_rect = title_text.get_rect(center=(screen.get_width() // 2, 50 + vertical_offset))
@@ -580,9 +588,9 @@ while running:
         # Di chuyển chữ và kiểm tra va chạm với dino
         for letter in letters[:]:
             letter["x"] -= letter["speed"]
-            letter_text = game_font.render(letter["letter"], True, (0, 0, 0))
-            letter_rect = letter_text.get_rect(topleft=(letter["x"], letter["y"]))
-            screen.blit(letter_text, (letter["x"], letter["y"]))
+            letter_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 38)
+            draw_outlined_text(letter["letter"], letter_font, letter["x"], letter["y"], (255, 255, 0), (0, 0, 0))
+            letter_rect = pygame.Rect(letter["x"], letter["y"], 38, 38)
             if letter["x"] < -20:
                 letters.remove(letter)
                 continue
@@ -603,7 +611,7 @@ while running:
                 high_score = score
                 save_high_score(high_score)
 
-            collected_words.add(current_word)  # ✅ Ghi nhận từ đã thu thập
+            collected_words.add(current_word)  
             save_collected_words()     
             collected_letters = []
             expected_index = 0
@@ -611,7 +619,6 @@ while running:
             threading.Thread(target=read_word, args=(current_word,), daemon=True).start()
 
             current_word = random.choice(words)
-            # collected_words.add(current_word)  # ✅ Ghi nhận từ đã thu thập
             letters.clear()
         
         # Kiểm tra va chạm với cây
