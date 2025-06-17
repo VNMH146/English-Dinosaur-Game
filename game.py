@@ -6,6 +6,12 @@ from gtts import gTTS
 import os
 import tempfile
 import sys
+import speech_recognition as sr
+import vosk
+import sounddevice as sd
+import queue
+import json
+import time
 pygame.init()
 clock = pygame.time.Clock()
 
@@ -26,8 +32,13 @@ baloo_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 24)
 # Load âm thanh
 sound1 = pygame.mixer.Sound(r'sound/tick.wav')
 sound2 = pygame.mixer.Sound(r'sound/te.wav')
+pygame.mixer.music.load('sound/music2.mp3')
+pygame.mixer.music.set_volume(0.3)  
+pygame.mixer.music.play(-1)  # Lặp vô hạn
+
 
 # Khởi tạo các biến game ban đầu
+sound_on=True
 score = 0
 high_score = 0
 bg_x, bg_y = 0, 0
@@ -43,6 +54,48 @@ game_over_flag = False
 paused = False
 letters = []
 letter_spawn_timer = random.randint(60, 120)
+
+
+
+
+
+
+def voice_listener():
+    global jump, gameplay, dino_y, game_over_flag
+    voice_q = queue.Queue()
+    model = vosk.Model("model")
+    samplerate = 16000
+
+    def callback(indata, frames, time, status):
+        if status:
+            print(status)
+        voice_q.put(bytes(indata))
+
+    with sd.RawInputStream(samplerate=samplerate, blocksize= 256, dtype='int16',
+                           channels=1, callback=callback):
+        rec = vosk.KaldiRecognizer(model, samplerate, '["jump"]')
+        print("Say 'jump' to control the character:")
+
+        while True:
+            try:
+                data = voice_q.get(timeout=0.05)
+                # Xử lý partial trước
+                partial = json.loads(rec.PartialResult())
+                ptext = partial.get("partial", "")
+                if "jump" in ptext and gameplay and not game_over_flag and not jump and dino_y >= 460:
+                    jump = True
+                    sound1.play()
+                # Sau đó mới xử lý kết quả đầy đủ
+                if rec.AcceptWaveform(data):
+                    result = json.loads(rec.Result())
+                    text = result.get("text", "")
+                    print(f"You said: {text}")
+                    if "jump" in text and gameplay and not game_over_flag and not jump and dino_y >= 460:
+                        jump = True
+                        sound1.play()
+            except Exception as e:
+                print("Error in voice loop:", e)
+
 
 
 def save_collected_words():
@@ -80,6 +133,7 @@ def load_vocabulary(file_path):
             word, meaning = line.split(': ')
             word_dict[word] = meaning
     return word_dict
+
 # Hàm lưu high score vào file
 def save_high_score(score):
     with open("high_score.txt", "w") as file:
@@ -131,25 +185,41 @@ def draw_outlined_text(text, font, x, y, main_color, outline_color):
 
 
 
+
 # Hiển thị màn hình chính
 def show_main_menu():
     screen.blit(bg, (0, 0)) 
 
     # Vẽ nhân vật gà đứng ở góc dưới
-    screen.blit(dino, (100, 460))  # X: 100, Y: 460 (góc dưới nền)
+    screen.blit(dino, (100, 460))  
 
-    vertical_offset = 45 
+    vertical_offset = 10 
 
     
     title_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 48)
-    title_text = title_font.render('English Game', True, (255, 215, 0))
-    title_rect = title_text.get_rect(center=(screen.get_width() // 2, 50 + vertical_offset))
-    screen.blit(title_text, title_rect)
+    draw_outlined_text(
+        'English Game',
+        title_font,
+        (screen.get_width() - title_font.size('English Game')[0]) // 2,
+        50 + vertical_offset,
+        (255, 215, 0),   # Màu chính
+        (0, 0, 0)        # Màu viền
+    )
+
+
+    center_x = (screen.get_width() - 200) // 2
+    sound_button = draw_pixel_button(
+    "Sound: ON" if sound_on else "Sound: OFF",
+    center_x, 500 + vertical_offset, 200, 50,
+    color=(180, 180, 180), hover_color=(180, 180, 255)
+)
+
+
 
     # High Score
     high_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 28)
     hs_text = high_font.render(f'High Score: {high_score}', True, (255, 0, 0))
-    hs_rect = hs_text.get_rect(center=(screen.get_width() // 2, 130 + 80))
+    hs_rect = hs_text.get_rect(center=(screen.get_width() // 2, 180))
     border_rect = pygame.Rect(hs_rect.x - 10, hs_rect.y - 5, hs_rect.width + 20, hs_rect.height + 10)
     pygame.draw.rect(screen, (255, 230, 230), border_rect, border_radius=12)
     pygame.draw.rect(screen, (255, 0, 0), border_rect, 2, border_radius=12)
@@ -162,7 +232,7 @@ def show_main_menu():
     review_button = draw_pixel_button("Review", center_x, 360 + vertical_offset, 200, 50, color=(255, 204, 0), hover_color=(255, 229, 80), text_color=(0, 0, 0))
     reset_button = draw_pixel_button("Reset", center_x, 430 + vertical_offset, 200, 50, color=(255, 80, 80), hover_color=(255, 0, 0))
 
-    return play_button, vocab_button, review_button, reset_button
+    return play_button, vocab_button, review_button, reset_button, sound_button
 
 
 
@@ -178,9 +248,23 @@ def review_menu():
     scroll_speed = 1
 
     while review_running:
-        screen.fill((255, 255, 255))
-        title = review_font.render("Vocabulary Review", True, (0, 0, 0))
-        screen.blit(title, (screen.get_width() // 2 - title.get_width() // 2, 30))
+       
+         # Dùng background chính
+        screen.blit(bg, (0, 0))
+        # Phủ lớp trắng mờ để dễ đọc chữ
+        overlay = pygame.Surface((800, 600), pygame.SRCALPHA)
+        overlay.fill((255, 255, 255, 180))
+        screen.blit(overlay, (0, 0))
+
+
+        draw_outlined_text(
+            "Vocabulary Review",
+            review_font,
+            (screen.get_width() - review_font.size("Vocabulary Review")[0]) // 2,
+            30,
+            (0, 0, 0),      
+            (255, 255, 255) 
+)
 
         # Hiển thị các từ dựa trên scroll offset
         start_index = scroll_offset
@@ -196,7 +280,7 @@ def review_menu():
         # Vẽ thanh cuộn (scrollbar)
         total_items = len(word_list)
         if total_items > max_display:
-            bar_height = 300
+            bar_height = 400
             scrollbar_height = max(40, int(bar_height * max_display / total_items))
             scrollbar_pos = int((scroll_offset / (total_items - max_display)) * (bar_height - scrollbar_height))
 
@@ -230,28 +314,41 @@ def review_menu():
 
 
 def pause_menu():
-    global running, paused, main_menu, gameplay, game_over_flag, score
+    global running, paused, main_menu, gameplay, game_over_flag, score,sound_on
     big_font = pygame.font.Font('assets/font/Arial_Bold.ttf', 60)
 
     while paused:
-        # Nền tối overlay
-        overlay = pygame.Surface((800, 600))
-        overlay.set_alpha(200)
-        overlay.fill((0, 0, 0))
+      
+        screen.blit(bg, (0, 0))
+        # Phủ lớp trắng mờ toàn màn hình
+        overlay = pygame.Surface((800, 600), pygame.SRCALPHA)
+        overlay.fill((255, 255, 255, 180))  # Trắng mờ, alpha 180
         screen.blit(overlay, (0, 0))
-
-        # Khung menu
-        pygame.draw.rect(screen, (50, 50, 50), (200, 100, 400, 350), border_radius=12)
+     
 
         # Tiêu đề "PAUSED"
         pause_text = big_font.render('PAUSED', True, (255, 255, 255))
         screen.blit(pause_text, ((800 - pause_text.get_width()) // 2, 130))
 
+        draw_outlined_text(
+            'PAUSED',
+             big_font,
+            (800 - big_font.size('PAUSED')[0]) // 2,
+            130,
+            (0, 0, 0),   
+            (255, 255, 255)        
+)
+
+
         # Vẽ các nút
         resume_button = draw_pixel_button("RESUME", 300, 220, 200, 50, color=(255, 165, 0), hover_color=(255, 200, 0))
         menu_button   = draw_pixel_button("MENU",   300, 290, 200, 50, color=(0, 180, 255), hover_color=(0, 220, 255))
         quit_button   = draw_pixel_button("QUIT",   300, 360, 200, 50, color=(255, 80, 80), hover_color=(255, 0, 0))
-
+        sound_button  = draw_pixel_button(
+            "Sound: ON" if sound_on else "Sound: OFF",
+            300, 430, 200, 50,
+            color=(180, 180, 180), hover_color=(120, 120, 120)
+        )
         pygame.display.update()
 
         # Xử lý sự kiện
@@ -280,7 +377,12 @@ def pause_menu():
                 elif quit_button.collidepoint(mouse_pos):
                     pygame.quit()
                     sys.exit()
-
+                elif sound_button.collidepoint(mouse_pos):
+                    sound_on = not sound_on
+                    if sound_on:
+                        pygame.mixer.music.set_volume(0.3)
+                    else:
+                        pygame.mixer.music.set_volume(0.0)
 
 
 
@@ -359,22 +461,25 @@ def checkvc():
 
 # Khởi tạo font hiển thị
 game_font = pygame.font.Font('assets/font/Arial_Bold.ttf', 20)
+word_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 26)
 
 def show_score(): 
-    score_display = game_font.render(f'Score: {int(score)}', True, (255, 0, 0))
-    hscore_display = game_font.render(f'High Score: {int(high_score)}', True, (255, 0, 0))
-    
-    # Căn chỉnh score và high score về góc phải
-    screen.blit(score_display, (screen.get_width() - score_display.get_width() - 20, 20))
-    screen.blit(hscore_display, (screen.get_width() - hscore_display.get_width() - 20, 50))
+    draw_outlined_text(f'High Score: {int(high_score)}', word_font, screen.get_width() - 200, 50, (255, 0, 0), (255, 255, 255))
+    draw_outlined_text(f'Score: {int(score)}', word_font, screen.get_width() - 200, 20, (255, 0, 0), (255, 255, 255))
 
     if not gameplay:
         # Tăng kích thước font Game Over
-        big_font = pygame.font.Font('assets/font/Arial_Bold.ttf', 50)
-        game_over = big_font.render('Game Over', True, (255, 0, 0))
+        big_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 70)
+       
+        draw_outlined_text(
+            'GAME OVER',
+            big_font,
+            (screen.get_width() - big_font.size('GAME OVER')[0]) // 2,
+            screen.get_height() // 3,
+            (255, 0, 0),  # Màu chính
+            (255, 255, 255)  # Màu viền
+        )
 
-        # Căn giữa màn hình
-        screen.blit(game_over, ((screen.get_width() - game_over.get_width()) // 2, screen.get_height() // 3))
 
         # Vẽ nút "Back"
         back_button = draw_pixel_button("Back", 325, 300, 150, 50, color=(0, 200, 0), hover_color=(0, 255, 0), text_color=(0, 0, 0))
@@ -384,17 +489,38 @@ def show_score():
 
 
 def show_word():
-    target_text = game_font.render(f'Target: {current_word}', True, (255, 0, 0))
-    screen.blit(target_text, (30, 20))
-    translation_text = game_font.render(f'Meaning:{word_dict[current_word]}', True, (0, 0, 255))
-    screen.blit(translation_text, (30, 50))
-    collected_text = game_font.render("".join(collected_letters), True, (0, 128, 0))
-    screen.blit(collected_text, (30, 80))
+
+    draw_outlined_text(f'TARGET: {current_word}', word_font, 30, 20, (0,0,255), (255, 255, 255))
+    draw_outlined_text(f'MEANING: {word_dict[current_word]}', word_font, 30, 52, (30,144,255), (255,255,255))
+    # draw_outlined_text("".join(collected_letters), word_font, 30, 85, (0,255,0), (0, 0, 0))
+        # Hiển thị từ thu thập với khoảng trắng và dấu gạch dưới cho phần chưa thu thập
+    display_word = ""
+    collected_i = 0
+    for c in current_word:
+        if c == " ":
+            display_word += " "
+        elif collected_i < len(collected_letters):
+            display_word += collected_letters[collected_i]
+            collected_i += 1
+        else:
+            display_word += "_"
+
+    draw_outlined_text(display_word, word_font, 30, 85, (0,255,0), (0, 0, 0))
+
+ 
 
 # Hàm tạo chữ cái ngẫu nhiên, với 75% là chữ cần thu thập
 def generate_letter():
-    if len(letters) >= 3:
+    if len(letters) >= 2:
         return None
+    # Nếu cây đang ở gần nhân vật, không sinh chữ cái để tránh va chạm
+    if tree_x - dino_x < 150:
+        return None
+    # Bỏ qua các ký tự khoảng trắng khi sinh chữ
+    global expected_index, current_word
+    while expected_index < len(current_word) and current_word[expected_index] == " ":
+        expected_index += 1
+
     if expected_index < len(current_word):
         if random.random() < 0.75:
             letter_char = current_word[expected_index]
@@ -410,12 +536,12 @@ def generate_letter():
         if letters:
             last_letter = letters[-1]
             while abs(letter_x - last_letter["x"]) < 200:
-                letter_x += random.randint(50, 100)
+                letter_x += random.randint(30, 60)
 
         return {
             "letter": letter_char,
             "x": letter_x,
-            "y": letter_y,  # Đặt chữ cao hơn để phù hợp với tầm nhìn của nhân vật
+            "y": letter_y,  
             "speed": x_def,
             
         }
@@ -431,21 +557,19 @@ def read_word(word):
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.mp3')
     temp_file.close()
     tts.save(temp_file.name)
+    sound = pygame.mixer.Sound(temp_file.name)
+    sound.play()
 
-    pygame.mixer.music.load(temp_file.name)
-    pygame.mixer.music.play()
 
-    while pygame.mixer.music.get_busy():
+     # Chờ âm thanh phát xong
+    while sound.get_num_channels() > 0:
         pygame.time.Clock().tick(10)
-
-    pygame.mixer.music.stop()
-    pygame.mixer.music.unload()
     os.remove(temp_file.name)
-
 # ---------------------------
 # Vòng lặp chính của game
 # ---------------------------
 running = True
+threading.Thread(target=voice_listener, daemon=True).start()
 while running:
     clock.tick(60)
     
@@ -454,8 +578,9 @@ while running:
             running = False
             
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            paused = True  # Kích hoạt trạng thái PAUSE
-            pause_menu()  # Hiển thị menu PAUSE
+            if gameplay and not game_over_flag and not main_menu:
+                paused = True  # Kích hoạt trạng thái PAUSE
+                pause_menu()  # Hiển thị menu PAUSE
         if paused:
             continue  # Nếu đang Pause, không cập nhật game
         # Nếu đang ở trạng thái Game Over, cho phép nhấn SPACE để khởi động lại
@@ -469,7 +594,7 @@ while running:
                     expected_index = 0
                     current_word = random.choice(words)
                     letters.clear()
-                    reset_game_positions()  # Reset vị trí các đối tượng
+                    reset_game_positions()  
             elif event.type == pygame.MOUSEBUTTONDOWN:
             # Nhấn chuột vào nút "Back" để quay về menu chính
                 mouse_pos = pygame.mouse.get_pos()
@@ -477,8 +602,9 @@ while running:
                     game_over_flag = False
                     main_menu = True  # Quay về màn hình chính
                     gameplay = False
+                    vocab_menu = False
                     score = 0
-
+                    continue
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_SPACE and gameplay:
                 if dino_y == 460:
@@ -493,11 +619,11 @@ while running:
                 letters.clear()
                 reset_game_positions()
                 
-        # Event handling logic for vocabulary menu
+        #vocabulary menu
         if event.type == pygame.MOUSEBUTTONDOWN:
             mouse_pos = event.pos
             if main_menu:
-                play_button, vocab_button, review_button, reset_button = show_main_menu()
+                play_button, vocab_button, review_button, reset_button,sound_button = show_main_menu()
 
                 
                 if play_button.collidepoint(mouse_pos):
@@ -525,6 +651,13 @@ while running:
                     save_high_score(high_score)
                     save_collected_words()
                     print("Game reset thành công!")
+                elif sound_button.collidepoint(mouse_pos):
+                    sound_on = not sound_on
+                    if sound_on:
+                        pygame.mixer.music.set_volume(0.3)
+                    else:
+                        pygame.mixer.music.set_volume(0.0)
+
             elif vocab_menu:
                 category_buttons = show_vocab_menu()
                 for name, btn in category_buttons:
@@ -549,8 +682,9 @@ while running:
                 collected_letters = []
                 letters.clear()
                 reset_game_positions()
+            
     if main_menu:
-        play_button, vocab_button,review_button, reset_button = show_main_menu()
+        play_button, vocab_button,review_button, reset_button, sound_button = show_main_menu()
     elif vocab_menu:
         fruit_button, animal_button, job_button,home_button,school_button,body_button,color_button,shape_button,weather_button,food_button = show_vocab_menu()
     elif gameplay:
@@ -585,17 +719,30 @@ while running:
         else:
             letter_spawn_timer -= 1
 
+        letter_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 38)
         # Di chuyển chữ và kiểm tra va chạm với dino
         for letter in letters[:]:
             letter["x"] -= letter["speed"]
-            letter_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 38)
-            draw_outlined_text(letter["letter"], letter_font, letter["x"], letter["y"], (255, 255, 0), (0, 0, 0))
+            
+            draw_outlined_text(letter["letter"], letter_font, letter["x"], letter["y"], (238,130,238), (0, 0, 0))
             letter_rect = pygame.Rect(letter["x"], letter["y"], 38, 38)
-            if letter["x"] < -20:
+            if letter["x"] < -50:
+                letters.remove(letter)
+                continue
+            # Bỏ qua khoảng trắng trong target trước khi so sánh
+            while expected_index < len(current_word) and current_word[expected_index] == " ":
+                expected_index += 1
+
+             # Nếu đã thu hết chữ, không cần so sánh nữa
+            if expected_index >= len(current_word):
+                continue
+            
+            if letter["letter"] != current_word[expected_index] and letter["x"] < dino_x - 50:
                 letters.remove(letter)
                 continue
             if dino_hcn.colliderect(letter_rect):
                 if letter["letter"] == current_word[expected_index]:
+                    # if expected_index < len(current_word) and letter["letter"] == current_word[expected_index]:
                     collected_letters.append(letter["letter"])
                     expected_index += 1
                     letters.remove(letter)
@@ -605,7 +752,12 @@ while running:
                     sound2.play()
                     break
 
-        if "".join(collected_letters) == current_word:
+            if len(letters) > 15:
+                letters = letters[-15:]  
+
+
+
+        if "".join(collected_letters) == current_word.replace(" ", ""):
             score += 10
             if score > high_score:
                 high_score = score
@@ -617,7 +769,6 @@ while running:
             expected_index = 0
             # read_word(current_word)
             threading.Thread(target=read_word, args=(current_word,), daemon=True).start()
-
             current_word = random.choice(words)
             letters.clear()
         
