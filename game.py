@@ -37,7 +37,7 @@ pygame.mixer.music.set_volume(0.3)
 pygame.mixer.music.play(-1)  # Lặp vô hạn
 
 
-# Khởi tạo các biến game ban đầu
+# Khởi tạo 
 sound_on=True
 score = 0
 high_score = 0
@@ -114,7 +114,7 @@ collected_words = load_collected_words()
 
 
 
-# Hàm reset vị trí các đối tượng khi khởi động lại trò chơi
+# Hàm reset vị trí 
 def reset_game_positions():
     global bg_x, tree_x, dino_x, dino_y, jump, letter_spawn_timer
     bg_x = 0
@@ -249,7 +249,7 @@ def review_menu():
 
     while review_running:
        
-         # Dùng background chính
+        # Dùng background chính
         screen.blit(bg, (0, 0))
         # Phủ lớp trắng mờ để dễ đọc chữ
         overlay = pygame.Surface((800, 600), pygame.SRCALPHA)
@@ -277,7 +277,7 @@ def review_menu():
         # Nút Back
         back_button = draw_pixel_button("Back", 325, 520, 150, 50, color=(200, 200, 200), hover_color=(220, 220, 220), text_color=(0, 0, 0))
 
-        # Vẽ thanh cuộn (scrollbar)
+        #Thanh cuộn
         total_items = len(word_list)
         if total_items > max_display:
             bar_height = 400
@@ -326,7 +326,7 @@ def pause_menu():
         screen.blit(overlay, (0, 0))
      
 
-        # Tiêu đề "PAUSED"
+        #PAUSED
         pause_text = big_font.render('PAUSED', True, (255, 255, 255))
         screen.blit(pause_text, ((800 - pause_text.get_width()) // 2, 130))
 
@@ -468,7 +468,7 @@ def show_score():
     draw_outlined_text(f'Score: {int(score)}', word_font, screen.get_width() - 200, 20, (255, 0, 0), (255, 255, 255))
 
     if not gameplay:
-        # Tăng kích thước font Game Over
+        
         big_font = pygame.font.Font('assets/font/Baloo2-Bold.ttf', 70)
        
         draw_outlined_text(
@@ -492,8 +492,8 @@ def show_word():
 
     draw_outlined_text(f'TARGET: {current_word}', word_font, 30, 20, (0,0,255), (255, 255, 255))
     draw_outlined_text(f'MEANING: {word_dict[current_word]}', word_font, 30, 52, (30,144,255), (255,255,255))
-    # draw_outlined_text("".join(collected_letters), word_font, 30, 85, (0,255,0), (0, 0, 0))
-        # Hiển thị từ thu thập với khoảng trắng và dấu gạch dưới cho phần chưa thu thập
+    
+   
     display_word = ""
     collected_i = 0
     for c in current_word:
@@ -509,14 +509,14 @@ def show_word():
 
  
 
-# Hàm tạo chữ cái ngẫu nhiên, với 75% là chữ cần thu thập
+# Hàm tạo chữ cái ngẫu nhiên
 def generate_letter():
     if len(letters) >= 2:
         return None
-    # Nếu cây đang ở gần nhân vật, không sinh chữ cái để tránh va chạm
+   
     if tree_x - dino_x < 150:
         return None
-    # Bỏ qua các ký tự khoảng trắng khi sinh chữ
+    # Bỏ qua các khoảng trắng khi sinh chữ
     global expected_index, current_word
     while expected_index < len(current_word) and current_word[expected_index] == " ":
         expected_index += 1
